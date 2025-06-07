@@ -96,96 +96,91 @@ install_docker() {
     
     if command -v docker &> /dev/null; then
         log "Docker is already installed: $(docker --version)"
-        return 0
+    else
+        log "Installing Docker..."
+        
+        case "$OS" in
+            *"Ubuntu"*|*"Debian"*)
+                # Update package index
+                sudo apt-get update
+                
+                # Install prerequisites
+                sudo apt-get install -y \
+                    apt-transport-https \
+                    ca-certificates \
+                    curl \
+                    gnupg \
+                    lsb-release
+                
+                # Add Docker's official GPG key
+                curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+                
+                # Set up stable repository
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+                
+                # Install Docker Engine
+                sudo apt-get update
+                sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+                ;;
+                
+            *"CentOS"*|*"Red Hat"*|*"RHEL"*)
+                # Remove old versions
+                sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine
+                
+                # Install yum-utils
+                sudo yum install -y yum-utils
+                
+                # Set up stable repository
+                sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+                
+                # Install Docker Engine
+                sudo yum install -y docker-ce docker-ce-cli containerd.io
+                ;;
+                
+            *)
+                error "Unsupported OS: $OS. Please install Docker manually."
+                ;;
+        esac
+        
+        log "Docker installed successfully: $(docker --version)"
     fi
-    
-    log "Installing Docker..."
-    
-    case "$OS" in
-        *"Ubuntu"*|*"Debian"*)
-            # Update package index
-            sudo apt-get update
-            
-            # Install prerequisites
-            sudo apt-get install -y \
-                apt-transport-https \
-                ca-certificates \
-                curl \
-                gnupg \
-                lsb-release
-            
-            # Add Docker's official GPG key
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-            
-            # Set up stable repository
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            
-            # Install Docker Engine
-            sudo apt-get update
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io
-            ;;
-            
-        *"CentOS"*|*"Red Hat"*|*"RHEL"*)
-            # Remove old versions
-            sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine
-            
-            # Install yum-utils
-            sudo yum install -y yum-utils
-            
-            # Set up stable repository
-            sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-            
-            # Install Docker Engine
-            sudo yum install -y docker-ce docker-ce-cli containerd.io
-            ;;
-            
-        *)
-            error "Unsupported OS: $OS. Please install Docker manually."
-            ;;
-    esac
-    
-    # Start Docker service
-    sudo systemctl start docker
-    sudo systemctl enable docker
     
     # Add current user to docker group (if not root)
     if [ "$EUID" -ne 0 ]; then
         sudo usermod -aG docker $USER
         warn "Added $USER to docker group. You may need to log out and back in for this to take effect."
-        warn "Or run: newgrp docker"
     fi
     
-    log "Docker installed successfully: $(docker --version)"
+    # START DOCKER DAEMON (your working solution)
+    log "Starting Docker daemon with restricted networking..."
     
-    # Start Docker service (with proper init system detection)
-    log "Starting Docker service..."
-
-    if command -v systemctl &> /dev/null && systemctl is-system-running &>/dev/null 2>&1; then
-        # System uses systemd
-        sudo systemctl start docker
-        sudo systemctl enable docker
-        log "Docker service started and enabled via systemd"
-    elif command -v service &> /dev/null; then
-        # System uses SysV init
-        sudo service docker start
-        # Try to enable auto-start
-        if command -v chkconfig &> /dev/null; then
-            sudo chkconfig docker on
-        elif command -v update-rc.d &> /dev/null; then
-            sudo update-rc.d docker defaults
-        fi
-        log "Docker service started via service command"
-    elif [ -f /etc/init.d/docker ]; then
-        # Manual init script
-        sudo /etc/init.d/docker start
-        log "Docker service started via init script"
+    # Check if Docker daemon is already running
+    if ! docker info &>/dev/null; then
+        log "Docker daemon not running, starting with simplified networking..."
+        
+        # Start Docker daemon with iptables disabled (for containerized environments)
+        sudo dockerd --iptables=false --bridge=none &
+        
+        # Wait for Docker daemon to start
+        for i in {1..15}; do
+            if docker info &>/dev/null; then
+                log "Docker daemon started successfully (restricted networking mode)"
+                break
+            elif [ $i -eq 15 ]; then
+                error "Failed to start Docker daemon after 15 attempts"
+            else
+                log "Waiting for Docker daemon to start... ($i/15)"
+                sleep 2
+            fi
+        done
     else
-        warn "Could not start Docker service automatically."
-        warn "Please start manually: sudo service docker start"
+        log "Docker daemon is already running"
     fi
-
-    # Wait a moment for Docker daemon to start
-    sleep 3
+    
+    # Ensure proper permissions
+    if [ -S /var/run/docker.sock ]; then
+        sudo chmod 666 /var/run/docker.sock
+    fi
 }
 
 # Install Docker Compose
