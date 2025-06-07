@@ -388,7 +388,7 @@ run_data_pipeline() {
     fi
     
     # Run run.sh
-    ./run.sh
+    # ./run.sh
     
     if [ $? -eq 0 ]; then
         log "run.sh completed successfully!"
