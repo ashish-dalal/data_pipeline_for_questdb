@@ -270,7 +270,7 @@ clone_repository() {
         CLONE_URL="https://${GITHUB_TOKEN}@github.com/2CentsCapital/datafetching.git"
     fi
     
-    if git clone "$CLONE_URL" "$PROJECT_DIR"; then
+    if git clone --branch feature/9-dockerize-data-pipeline "$CLONE_URL" "$PROJECT_DIR"; then
         log "Repository cloned successfully"
     else
         error "Failed to clone repository. Please check your credentials and try again."
