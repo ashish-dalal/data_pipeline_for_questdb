@@ -171,6 +171,36 @@ install_docker() {
     fi
     
     log "Docker installed successfully: $(docker --version)"
+    
+    # Start Docker service (with proper init system detection)
+    log "Starting Docker service..."
+
+    if command -v systemctl &> /dev/null && systemctl is-system-running &>/dev/null 2>&1; then
+        # System uses systemd
+        sudo systemctl start docker
+        sudo systemctl enable docker
+        log "Docker service started and enabled via systemd"
+    elif command -v service &> /dev/null; then
+        # System uses SysV init
+        sudo service docker start
+        # Try to enable auto-start
+        if command -v chkconfig &> /dev/null; then
+            sudo chkconfig docker on
+        elif command -v update-rc.d &> /dev/null; then
+            sudo update-rc.d docker defaults
+        fi
+        log "Docker service started via service command"
+    elif [ -f /etc/init.d/docker ]; then
+        # Manual init script
+        sudo /etc/init.d/docker start
+        log "Docker service started via init script"
+    else
+        warn "Could not start Docker service automatically."
+        warn "Please start manually: sudo service docker start"
+    fi
+
+    # Wait a moment for Docker daemon to start
+    sleep 3
 }
 
 # Install Docker Compose
