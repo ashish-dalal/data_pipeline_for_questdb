@@ -144,24 +144,9 @@ install_docker() {
             ;;
     esac
     
-    # Start Docker service (with systemd detection)
-    if command -v systemctl &> /dev/null && systemctl is-system-running &>/dev/null; then
-        # System uses systemd
-        sudo systemctl start docker
-        sudo systemctl enable docker
-        log "Docker service started and enabled via systemd"
-    elif command -v service &> /dev/null; then
-        # System uses SysV init
-        sudo service docker start
-        log "Docker service started via service command"
-    elif [ -f /etc/init.d/docker ]; then
-        # Manual init script
-        sudo /etc/init.d/docker start
-        log "Docker service started via init script"
-    else
-        warn "Could not start Docker service automatically. Please start manually."
-        warn "Try: sudo service docker start"
-    fi
+    # Start Docker service
+    sudo systemctl start docker
+    sudo systemctl enable docker
     
     # Add current user to docker group (if not root)
     if [ "$EUID" -ne 0 ]; then
