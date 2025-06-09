@@ -96,91 +96,66 @@ install_docker() {
     
     if command -v docker &> /dev/null; then
         log "Docker is already installed: $(docker --version)"
-    else
-        log "Installing Docker..."
-        
-        case "$OS" in
-            *"Ubuntu"*|*"Debian"*)
-                # Update package index
-                sudo apt-get update
-                
-                # Install prerequisites
-                sudo apt-get install -y \
-                    apt-transport-https \
-                    ca-certificates \
-                    curl \
-                    gnupg \
-                    lsb-release
-                
-                # Add Docker's official GPG key
-                curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-                
-                # Set up stable repository
-                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-                
-                # Install Docker Engine
-                sudo apt-get update
-                sudo apt-get install -y docker-ce docker-ce-cli containerd.io
-                ;;
-                
-            *"CentOS"*|*"Red Hat"*|*"RHEL"*)
-                # Remove old versions
-                sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine
-                
-                # Install yum-utils
-                sudo yum install -y yum-utils
-                
-                # Set up stable repository
-                sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-                
-                # Install Docker Engine
-                sudo yum install -y docker-ce docker-ce-cli containerd.io
-                ;;
-                
-            *)
-                error "Unsupported OS: $OS. Please install Docker manually."
-                ;;
-        esac
-        
-        log "Docker installed successfully: $(docker --version)"
+        return 0
     fi
+    
+    log "Installing Docker..."
+    
+    case "$OS" in
+        *"Ubuntu"*|*"Debian"*)
+            # Update package index
+            sudo apt-get update
+            
+            # Install prerequisites
+            sudo apt-get install -y \
+                apt-transport-https \
+                ca-certificates \
+                curl \
+                gnupg \
+                lsb-release
+            
+            # Add Docker's official GPG key
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+            
+            # Set up stable repository
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            
+            # Install Docker Engine
+            sudo apt-get update
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+            ;;
+            
+        *"CentOS"*|*"Red Hat"*|*"RHEL"*)
+            # Remove old versions
+            sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine
+            
+            # Install yum-utils
+            sudo yum install -y yum-utils
+            
+            # Set up stable repository
+            sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+            
+            # Install Docker Engine
+            sudo yum install -y docker-ce docker-ce-cli containerd.io
+            ;;
+            
+        *)
+            error "Unsupported OS: $OS. Please install Docker manually."
+            ;;
+    esac
+    
+    # Start Docker service
+    sudo systemctl start docker
+    sudo systemctl enable docker
     
     # Add current user to docker group (if not root)
     if [ "$EUID" -ne 0 ]; then
         sudo usermod -aG docker $USER
         warn "Added $USER to docker group. You may need to log out and back in for this to take effect."
+        warn "Or run: newgrp docker"
     fi
     
-    # START DOCKER DAEMON (your working solution)
-    log "Starting Docker daemon with restricted networking..."
-    
-    # Check if Docker daemon is already running
-    if ! docker info &>/dev/null; then
-        log "Docker daemon not running, starting with simplified networking..."
-        
-        # Start Docker daemon with iptables disabled (for containerized environments)
-        sudo dockerd --iptables=false --bridge=none &
-        
-        # Wait for Docker daemon to start
-        for i in {1..15}; do
-            if docker info &>/dev/null; then
-                log "Docker daemon started successfully (restricted networking mode)"
-                break
-            elif [ $i -eq 15 ]; then
-                error "Failed to start Docker daemon after 15 attempts"
-            else
-                log "Waiting for Docker daemon to start... ($i/15)"
-                sleep 2
-            fi
-        done
-    else
-        log "Docker daemon is already running"
-    fi
-    
-    # Ensure proper permissions
-    if [ -S /var/run/docker.sock ]; then
-        sudo chmod 666 /var/run/docker.sock
-    fi
+    log "Docker installed successfully: $(docker --version)"
 }
 
 # Install Docker Compose
@@ -270,7 +245,7 @@ clone_repository() {
         CLONE_URL="https://${GITHUB_TOKEN}@github.com/2CentsCapital/datafetching.git"
     fi
     
-    if git clone --branch feature/9-dockerize-data-pipeline "$CLONE_URL" "$PROJECT_DIR"; then
+    if git clone "$CLONE_URL" "$PROJECT_DIR"; then
         log "Repository cloned successfully"
     else
         error "Failed to clone repository. Please check your credentials and try again."
@@ -308,26 +283,17 @@ verify_project_structure() {
 test_docker() {
     log "Testing Docker installation..."
     
-    # Test Docker daemon connectivity
-    if ! docker info &>/dev/null; then
-        error "Cannot connect to Docker daemon."
+    # Test Docker
+    if ! docker run --rm hello-world &>/dev/null; then
+        error "Docker test failed. Please check Docker installation."
     fi
     
     # Test Docker Compose
     if ! docker-compose version &>/dev/null; then
-        error "Docker Compose test failed."
+        error "Docker Compose test failed. Please check installation."
     fi
     
-    # Try hello-world test, but don't fail if it doesn't work
-    log "Attempting container test..."
-    if docker run --rm hello-world &>/dev/null; then
-        log "Container test passed"
-    else
-        warn "Container test failed - this may be due to environment restrictions"
-        warn "Continuing anyway - your data containers may still work"
-    fi
-    
-    log "Docker installation test completed"
+    log "Docker installation test passed"
 }
 
 # Check if run.sh exists
@@ -388,7 +354,7 @@ run_data_pipeline() {
     fi
     
     # Run run.sh
-    # ./run.sh
+    ./run.sh
     
     if [ $? -eq 0 ]; then
         log "run.sh completed successfully!"
